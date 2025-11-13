@@ -1,0 +1,52 @@
+[tool.poetry]
+name = "barista-backend"
+version = "0.1.0"
+description = "Backend service for the Barista AI agent (FastAPI + LangGraph)."
+authors = ["Barista Team <agents@barista.ai>"]
+readme = "README.md"
+packages = [{ include = "app" }, { include = "agent" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+fastapi = "^0.111.0"
+uvicorn = { extras = ["standard"], version = "^0.30.0" }
+langchain = "^0.2.15"
+langgraph = "^0.1.3"
+langchain-openai = "^0.1.16"
+langchain-community = "^0.2.9"
+openai = "^1.40.0"
+chromadb = "^0.5.4"
+redis = "^5.0.7"
+pydantic = "^2.8.2"
+pydantic-settings = "^2.3.4"
+pendulum = "^3.0.0"
+httpx = "^0.27.0"
+python-dotenv = "^1.0.1"
+structlog = "^24.1.0"
+orjson = "^3.10.7"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.2"
+pytest-asyncio = "^0.23.8"
+httpx = { version = "^0.27.0", extras = ["cli"] }
+ruff = "^0.5.5"
+mypy = "^1.11.1"
+types-redis = "^4.6.0.20240517"
+types-requests = "^2.32.0.20240712"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+select = ["E", "F", "I", "UP", "B", "PL", "N"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+pretty = true
+strict = true
+plugins = ["pydantic.mypy"]
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"
+

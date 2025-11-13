@@ -1,0 +1,94 @@
+"""Application configuration and settings management."""
+
+from functools import lru_cache
+from typing import List
+
+from pydantic import AnyUrl, BaseModel, Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class RedisDsn(AnyUrl):
+    allowed_schemes = {"redis", "rediss"}
+
+
+class Settings(BaseSettings):
+    """Runtime configuration sourced from environment variables."""
+
+    # Azure OpenAI Chat configuration (AI Foundry format)
+    azure_openai_endpoint: str = Field(
+        default="https://dehub.services.ai.azure.com",
+        alias="AZURE_OPENAI_ENDPOINT",
+        description="Azure OpenAI endpoint base URL for chat completions",
+    )
+    azure_openai_api_key: str = Field(..., alias="AZURE_OPENAI_API_KEY")
+    azure_openai_deployment_name: str = Field(
+        default="gpt-4o-mini",
+        alias="AZURE_OPENAI_DEPLOYMENT_NAME",
+        description="Azure OpenAI deployment name for chat completions",
+    )
+    azure_openai_api_version: str = Field(
+        default="2024-05-01-preview",
+        alias="AZURE_OPENAI_API_VERSION",
+        description="API version for chat completions",
+    )
+
+    # Azure OpenAI Embeddings configuration (Cognitive Services format)
+    azure_openai_embedding_endpoint: str = Field(
+        default="https://dehub.cognitiveservices.azure.com",
+        alias="AZURE_OPENAI_EMBEDDING_ENDPOINT",
+        description="Azure OpenAI endpoint base URL for embeddings",
+    )
+    azure_openai_embedding_deployment: str = Field(
+        default="text-embedding-ada-002",
+        alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
+        description="Azure OpenAI deployment name for embeddings",
+    )
+    azure_openai_embedding_api_version: str = Field(
+        default="2023-05-15",
+        alias="AZURE_OPENAI_EMBEDDING_API_VERSION",
+        description="API version for embeddings",
+    )
+
+    stability_api_key: str | None = Field(default=None, alias="STABILITY_API_KEY")
+    redis_url: RedisDsn = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    chroma_persist_path: str = Field(default="./storage/chroma", alias="CHROMA_PERSIST_PATH")
+    allow_origins_str: str = Field(
+        default="http://localhost:3000",
+        alias="ALLOW_ORIGINS",
+        description="Comma-separated list of allowed CORS origins (comma-separated string)",
+    )
+
+    @property
+    def allow_origins(self) -> List[str]:
+        """Parse comma-separated string into list of origins."""
+        if not self.allow_origins_str:
+            return ["http://localhost:3000"]
+        origins = [origin.strip() for origin in self.allow_origins_str.split(",") if origin.strip()]
+        return origins if origins else ["http://localhost:3000"]
+
+    langfuse_public_key: str | None = Field(default=None, alias="LANGFUSE_PUBLIC_KEY")
+    langfuse_secret_key: str | None = Field(default=None, alias="LANGFUSE_SECRET_KEY")
+    langfuse_base_url: str | None = Field(default=None, alias="LANGFUSE_BASE_URL")
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="allow",
+        env_parse_none_str="",
+        env_ignore_empty=True,
+    )
+
+
+class AppContext(BaseModel):
+    """Application-level context shared across routers and agent graph."""
+
+    settings: Settings
+    agent_graph: object | None = None  # Will be set during startup
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Return cached settings instance."""
+
+    return Settings()
+
