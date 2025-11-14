@@ -42,6 +42,11 @@ Copy `env.example` to `.env` and provide values:
 - `AZURE_SPEECH_STT_ENDPOINT` – STT endpoint (default: `https://eastus.stt.speech.microsoft.com`)
 - `AZURE_SPEECH_TTS_ENDPOINT` – TTS endpoint (default: `https://eastus.tts.speech.microsoft.com`)
 
+**TTS Configuration:**
+- `TTS_ENABLED_BY_DEFAULT` – Enable TTS by default for all agent responses (default: `false`)
+- `TTS_VOICE` – Default voice for TTS (default: `en-US-JennyNeural`)
+- `TTS_LANGUAGE` – Default language for TTS (default: `en-US`)
+
 ### Optional Configuration
 
 - `REDIS_URL` – Connection string for session memory (default: `redis://redis:6379/0`)

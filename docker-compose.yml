@@ -35,6 +35,10 @@ services:
       - AZURE_SPEECH_REGION=${AZURE_SPEECH_REGION:-eastus}
       - AZURE_SPEECH_STT_ENDPOINT=${AZURE_SPEECH_STT_ENDPOINT:-https://eastus.stt.speech.microsoft.com}
       - AZURE_SPEECH_TTS_ENDPOINT=${AZURE_SPEECH_TTS_ENDPOINT:-https://eastus.tts.speech.microsoft.com}
+      # TTS Configuration
+      - TTS_ENABLED_BY_DEFAULT=${TTS_ENABLED_BY_DEFAULT:-false}
+      - TTS_VOICE=${TTS_VOICE:-en-US-JennyNeural}
+      - TTS_LANGUAGE=${TTS_LANGUAGE:-en-US}
       # Infrastructure
       - REDIS_URL=redis://redis:6379/0
       - CHROMA_PERSIST_PATH=/data/chroma

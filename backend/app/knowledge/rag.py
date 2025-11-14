@@ -33,9 +33,15 @@ def create_rag_chain(
     # System prompt that enforces menu-only answers
     system_prompt = """You are a helpful barista assistant. Your job is to answer questions about the coffee menu based ONLY on the provided menu context.
 
+IMPORTANT CONTEXT HANDLING:
+- When the user uses pronouns like "it", "its", "that", "this", or asks follow-up questions, refer to the chat history to understand what they're referring to.
+- For example, if the user previously asked about "Mocha Magic" and then asks "what's its price?", understand that "it" refers to "Mocha Magic".
+- Always check the chat history first to resolve references before answering.
+
 Rules:
 - Answer questions about drinks, prices, ingredients, and menu categories using the provided context.
 - When asked to "show the menu" or "what's on the menu", provide a comprehensive overview of all available drinks from the context, including their prices and key details.
+- Use the chat history to understand references and context from previous messages.
 - If the information is not in the provided context, politely decline: "I'm sorry, I can only answer questions about our coffee menu. Could I help you with something from our menu instead?"
 - Be friendly, concise, and accurate.
 - Always include prices when mentioning drinks.
@@ -198,45 +204,4 @@ Rules:
             }
 
     return RAGChainWrapper(chain, retriever)
-
-
-async def query_menu(
-    rag_chain: Runnable,
-    question: str,
-    chat_history: List[tuple[str, str]] | None = None,
-) -> dict[str, str | List]:
-    """
-    Query the menu using RAG.
-
-    Returns a dict with 'answer' and optionally 'sources'.
-    """
-    from langchain_core.messages import HumanMessage, AIMessage
-    
-    logger.info("rag.query", question=question[:100])
-
-    # Format chat history as actual message objects
-    history_messages = []
-    if chat_history:
-        for human, ai in chat_history[-5:]:  # Last 5 exchanges
-            human_str = str(human) if not isinstance(human, str) else human
-            ai_str = str(ai) if not isinstance(ai, str) else ai
-            history_messages.append(HumanMessage(content=human_str))
-            history_messages.append(AIMessage(content=ai_str))
-
-    result = await rag_chain.ainvoke(
-        {
-            "question": question,
-            "chat_history": history_messages,
-        }
-    )
-
-    answer = result.get("result", "I'm sorry, I couldn't find an answer to that question.")
-    sources = result.get("source_documents", [])
-
-    logger.info("rag.complete", answer_length=len(answer), sources_count=len(sources))
-
-    return {
-        "answer": answer,
-        "sources": [doc.page_content[:200] for doc in sources] if sources else [],
-    }
 

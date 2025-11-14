@@ -105,66 +105,6 @@ def build_agent_graph(ctx: AppContext) -> Runnable:
 
     llm_with_tools = llm.bind_tools(tools)
 
-    # Define graph nodes
-    graph = StateGraph(AgentState)
-
-    def route_decision(state: AgentState) -> Literal["tools", "rag"]:
-        """Route to tools or RAG based on user intent."""
-        last_message = state["messages"][-1]
-        if isinstance(last_message, HumanMessage):
-            content = last_message.content.lower()
-
-            # Priority 1: Menu-related queries should go to RAG
-            menu_keywords = ["menu", "what do you have", "what drinks", "what coffee", "offer", "selection", "list"]
-            if any(keyword in content for keyword in menu_keywords):
-                return "rag"
-
-            # Priority 2: Check for tool-specific keywords
-            if any(
-                keyword in content
-                for keyword in ["available", "availability", "when", "time", "now"]
-            ):
-                # Check if asking about a specific drink availability
-                drinks = [
-                    "mocha magic",
-                    "vanilla dream",
-                    "caramel delight",
-                    "hazelnut harmony",
-                    "espresso elixir",
-                    "latte lux",
-                    "cappuccino charm",
-                ]
-                if any(drink in content for drink in drinks):
-                    return "tools"
-
-            if any(
-                keyword in content
-                for keyword in ["promotion", "special", "deal", "discount", "offer"]
-            ):
-                return "tools"
-
-            # Priority 3: Image generation (but not for menu requests)
-            if any(
-                keyword in content
-                for keyword in ["image", "picture", "photo", "looks like", "visual"]
-            ):
-                # Only route to tools if it's clearly about generating an image
-                # and not about showing the menu
-                if "menu" not in content and ctx.settings.azure_openai_api_key:
-                    return "tools"
-                # If menu is mentioned with image keywords, go to RAG
-                return "rag"
-
-            # Default to RAG for menu questions
-            return "rag"
-
-        return "rag"
-    
-    def router(state: AgentState) -> AgentState:
-        """Router node - passes through state unchanged."""
-        # The routing decision is made by route_decision function
-        return state
-
     def extract_message_content(message: BaseMessage) -> str:
         """Extract string content from a message, handling various content types."""
         content = message.content
@@ -191,6 +131,102 @@ def build_agent_graph(ctx: AppContext) -> Runnable:
         else:
             return str(content) if content else ""
 
+    # Define graph nodes
+    graph = StateGraph(AgentState)
+
+    def route_decision(state: AgentState) -> Literal["tools", "rag"]:
+        """Route to tools or RAG based on user intent."""
+        last_message = state["messages"][-1]
+        if isinstance(last_message, HumanMessage):
+            content = last_message.content.lower()
+            
+            # Get recent conversation context to understand references like "it", "its", "that"
+            # Look at the last few messages to understand context
+            recent_context = ""
+            for msg in state["messages"][-5:-1]:  # Last 4 messages (excluding current)
+                if isinstance(msg, (HumanMessage, AIMessage)):
+                    msg_content = extract_message_content(msg)
+                    if msg_content:
+                        recent_context += msg_content.lower() + " "
+
+            # Combine current message with recent context for better routing
+            full_context = (recent_context + content).lower()
+
+            # Check for price queries - these should go to RAG if we have menu context
+            price_keywords = ["price", "cost", "how much", "pricing"]
+            if any(keyword in content for keyword in price_keywords):
+                # If asking about price and we have menu context, go to RAG
+                # This handles cases like "what's its price" after discussing a drink
+                if any(keyword in recent_context for keyword in ["mocha", "vanilla", "caramel", "hazelnut", "espresso", "latte", "cappuccino", "drink", "coffee"]):
+                    return "rag"
+                # If there's a specific drink mentioned, also go to RAG
+                drinks = [
+                    "mocha magic",
+                    "vanilla dream",
+                    "caramel delight",
+                    "hazelnut harmony",
+                    "espresso elixir",
+                    "latte lux",
+                    "cappuccino charm",
+                ]
+                if any(drink in full_context for drink in drinks):
+                    return "rag"
+
+            # Priority 1: Menu-related queries should go to RAG
+            menu_keywords = ["menu", "what do you have", "what drinks", "what coffee", "offer", "selection", "list"]
+            if any(keyword in content for keyword in menu_keywords):
+                return "rag"
+
+            # Priority 2: Check for tool-specific keywords
+            if any(
+                keyword in content
+                for keyword in ["available", "availability", "when", "time", "now"]
+            ):
+                # Check if asking about a specific drink availability
+                drinks = [
+                    "mocha magic",
+                    "vanilla dream",
+                    "caramel delight",
+                    "hazelnut harmony",
+                    "espresso elixir",
+                    "latte lux",
+                    "cappuccino charm",
+                ]
+                if any(drink in full_context for drink in drinks):
+                    return "tools"
+
+            if any(
+                keyword in content
+                for keyword in ["promotion", "special", "deal", "discount", "offer"]
+            ):
+                return "tools"
+
+            # Priority 3: Image generation (but not for menu requests)
+            if any(
+                keyword in content
+                for keyword in ["image", "picture", "photo", "looks like", "visual", "show me"]
+            ):
+                # Only route to tools if it's clearly about generating an image
+                # and not about showing the menu
+                if "menu" not in content and ctx.settings.azure_openai_api_key:
+                    # Check if there's context about a specific drink in recent messages
+                    if any(keyword in recent_context for keyword in ["mocha", "vanilla", "caramel", "hazelnut", "espresso", "latte", "cappuccino", "drink", "coffee"]):
+                        return "tools"
+                    # If no context, still route to tools for image generation
+                    return "tools"
+                # If menu is mentioned with image keywords, go to RAG
+                return "rag"
+
+            # Default to RAG for menu questions (this handles price queries and follow-ups)
+            return "rag"
+
+        return "rag"
+    
+    def router(state: AgentState) -> AgentState:
+        """Router node - passes through state unchanged."""
+        # The routing decision is made by route_decision function
+        return state
+
     async def call_rag(state: AgentState) -> AgentState:
         """Invoke RAG chain for menu questions."""
         last_message = state["messages"][-1]
@@ -198,12 +234,13 @@ def build_agent_graph(ctx: AppContext) -> Runnable:
             question = extract_message_content(last_message)
 
             # Get chat history from messages
+            # Build chat history from all previous human-ai pairs
             chat_history = []
             for i in range(0, len(state["messages"]) - 1):
                 msg = state["messages"][i]
                 # Look for pairs of HumanMessage followed by AIMessage
                 if isinstance(msg, HumanMessage):
-                    # Find the next AIMessage (might not be immediately after)
+                    # Find the next AIMessage (might not be immediately after due to tool calls)
                     for j in range(i + 1, len(state["messages"]) - 1):
                         next_msg = state["messages"][j]
                         if isinstance(next_msg, AIMessage):
@@ -213,6 +250,15 @@ def build_agent_graph(ctx: AppContext) -> Runnable:
                             if human_content and ai_content:
                                 chat_history.append((human_content, ai_content))
                             break
+
+            # Log for debugging
+            logger.info(
+                "rag.invoking",
+                question=question[:100],
+                chat_history_length=len(chat_history),
+                total_messages=len(state["messages"]),
+                recent_context=[(h[:50], a[:50]) for h, a in chat_history[-3:]] if chat_history else [],
+            )
 
             result = await rag_chain.ainvoke(
                 {
@@ -230,6 +276,15 @@ def build_agent_graph(ctx: AppContext) -> Runnable:
 
     async def call_llm_with_tools(state: AgentState) -> AgentState:
         """Invoke LLM with tool binding for tool selection."""
+        # LangGraph's MemorySaver already maintains conversation state via thread_id
+        # All messages in state["messages"] are from the same conversation thread
+        # The LLM will see the full conversation history automatically
+        # Log message count for debugging
+        logger.info(
+            "llm_with_tools.invoking",
+            message_count=len(state["messages"]),
+            last_message=extract_message_content(state["messages"][-1])[:100] if state["messages"] else "",
+        )
         response = await llm_with_tools.ainvoke(state["messages"])
         state["messages"].append(response)
         return state
@@ -304,7 +359,34 @@ def build_agent_graph(ctx: AppContext) -> Runnable:
             if has_image:
                 image_instruction = "\n\nIMPORTANT: Do NOT include any image URLs, base64 data, or markdown image syntax in your response. The image has been generated and will be displayed separately. Just mention that you've generated the image."
             
+            # Get recent conversation context to help understand references
+            # Collect recent human-ai conversation pairs (excluding tool messages and current tool results)
+            recent_context_parts = []
+            # Go through messages in reverse, collecting human-ai pairs
+            # Skip tool messages and the last human message (which triggered this tool call)
+            collected = 0
+            for msg in reversed(state["messages"]):
+                if msg.type == "tool":
+                    continue  # Skip tool messages
+                if msg is human_msg:
+                    continue  # Skip the human message that triggered this
+                if isinstance(msg, (HumanMessage, AIMessage)):
+                    msg_content = extract_message_content(msg)
+                    if msg_content and msg_content.strip():
+                        role = "User" if isinstance(msg, HumanMessage) else "Assistant"
+                        recent_context_parts.insert(0, f"{role}: {msg_content}")
+                        collected += 1
+                        if collected >= 6:  # Last 6 messages (3 pairs)
+                            break
+                        
+            recent_context = "\n".join(recent_context_parts) if recent_context_parts else "No previous conversation context."
+            
             response_prompt = f"""Based on the tool results below, provide a friendly, natural response to the user's question.
+
+IMPORTANT: Use the conversation context to understand references. If the user said "it", "its", "that", etc., refer to the recent conversation context to understand what they're referring to.
+
+Recent Conversation Context:
+{recent_context if recent_context else "No previous context."}
 
 Tool Results:
 {tool_results_text}
@@ -312,7 +394,7 @@ Tool Results:
 User's original question: {human_msg.content if human_msg else 'N/A'}
 {image_instruction}
 
-Provide a concise, helpful response that incorporates the tool results naturally. Be conversational and helpful. Do not include any technical details, URLs, or data in your response."""
+Provide a concise, helpful response that incorporates the tool results naturally. Be conversational and helpful. Use the conversation context to understand any references (like "it", "its", "that"). Do not include any technical details, URLs, or data in your response."""
 
             final_response = await llm.ainvoke([HumanMessage(content=response_prompt)])
             state["messages"].append(AIMessage(content=final_response.content))

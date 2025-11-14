@@ -9,7 +9,7 @@ An intelligent virtual assistant for coffee shops that replaces static menu boar
 - **Promotions**: Daily specials and deals via mock API integration
 - **Image Generation**: Visual drink representations using FLUX 1.1 on Azure Foundry (optional)
 - **Voice Input/Output**: Azure Speech Services integration for speech-to-text and text-to-speech
-- **Session Management**: Conversation continuity across interactions
+- **Session Management**: Conversation continuity across interactions using LangGraph's MemorySaver
 
 ## Architecture
 
@@ -30,6 +30,7 @@ An intelligent virtual assistant for coffee shops that replaces static menu boar
 - **LLM**: Azure OpenAI (DeepSeek via Azure endpoint)
 - **Image Generation**: FLUX 1.1 on Azure Foundry
 - **Speech Services**: Azure Speech Services (STT/TTS)
+- **Memory**: LangGraph MemorySaver for conversation state persistence
 - **Deployment**: Docker containers managed by Coolify
 
 ## Quick Start

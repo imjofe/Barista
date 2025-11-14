@@ -79,6 +79,23 @@ class Settings(BaseSettings):
         description="Azure Speech Services TTS endpoint",
     )
 
+    # TTS Configuration
+    tts_enabled_by_default: bool = Field(
+        default=False,
+        alias="TTS_ENABLED_BY_DEFAULT",
+        description="Enable TTS by default for all agent responses",
+    )
+    tts_voice: str = Field(
+        default="en-US-JennyNeural",
+        alias="TTS_VOICE",
+        description="Default voice for text-to-speech synthesis",
+    )
+    tts_language: str = Field(
+        default="en-US",
+        alias="TTS_LANGUAGE",
+        description="Default language for text-to-speech synthesis",
+    )
+
     redis_url: RedisDsn = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     chroma_persist_path: str = Field(default="./storage/chroma", alias="CHROMA_PERSIST_PATH")
     allow_origins_str: str = Field(

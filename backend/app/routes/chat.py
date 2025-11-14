@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import uuid
-from typing import List
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -19,13 +18,6 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
-class ChatMessage(BaseModel):
-    """Chat message model."""
-
-    role: str = Field(..., description="Message role: 'user' or 'assistant'")
-    content: str = Field(..., description="Message content")
-
-
 class ChatRequest(BaseModel):
     """Chat request model."""
 
@@ -35,7 +27,10 @@ class ChatRequest(BaseModel):
         description="Base64 encoded audio data for voice input (alternative to message)",
     )
     session_id: str | None = Field(default=None, description="Session ID for conversation continuity")
-    audio_output: bool = Field(default=False, description="Whether to return audio response")
+    audio_output: bool | None = Field(
+        default=None,
+        description="Whether to return audio response (defaults to TTS_ENABLED_BY_DEFAULT if not specified)",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -101,15 +96,51 @@ async def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
         )
 
     # Create initial state
+    # LangGraph's MemorySaver maintains conversation state via thread_id
     config = {"configurable": {"thread_id": session_id}}
     initial_state: AgentState = {
         "messages": [HumanMessage(content=message_text)],
         "session_id": session_id,
     }
 
+    # Helper function to extract message content for logging
+    def extract_message_content_for_logging(msg):
+        """Extract string content from a message for logging."""
+        if hasattr(msg, "content"):
+            content = msg.content
+            if isinstance(content, str):
+                return content
+            elif isinstance(content, list):
+                return " ".join(str(item) for item in content if item)
+            else:
+                return str(content)
+        return str(msg)
+
     try:
         # Invoke agent graph
+        # LangGraph's MemorySaver maintains conversation state via thread_id (session_id)
+        # Each invocation with the same thread_id loads previous state and appends new messages
+        # This provides conversation continuity
+        logger.info(
+            "chat.invoking_agent",
+            session_id=session_id,
+            message=message_text[:100],  # Log first 100 chars
+        )
         result = await agent_graph.ainvoke(initial_state, config)
+        
+        # Log the number of messages in the result to verify state is being maintained
+        # If this number keeps growing, it means state is being maintained correctly
+        message_count = len(result.get("messages", []))
+        recent_messages = [
+            extract_message_content_for_logging(msg)[:50] 
+            for msg in result.get("messages", [])[-4:]
+        ]
+        logger.info(
+            "chat.agent_result",
+            session_id=session_id,
+            message_count=message_count,
+            recent_messages=recent_messages,
+        )
 
         # Extract final AI message
         ai_messages = [msg for msg in result["messages"] if msg.type == "ai"]
@@ -117,7 +148,33 @@ async def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
             raise HTTPException(status_code=500, detail="Agent did not generate a response")
 
         final_message = ai_messages[-1]
-        response_text = final_message.content
+        # Extract content from message, handling various content types
+        # AIMessage.content can be str, list, or dict
+        content = final_message.content
+        if isinstance(content, str):
+            response_text = content
+        elif isinstance(content, list):
+            # Handle list of content blocks (e.g., from tool calls)
+            text_parts = []
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+                    elif "text" in item:
+                        text_parts.append(str(item["text"]))
+                elif isinstance(item, str):
+                    text_parts.append(item)
+            response_text = " ".join(text_parts) if text_parts else ""
+        elif isinstance(content, dict):
+            if "text" in content:
+                response_text = str(content["text"])
+            else:
+                response_text = str(content)
+        else:
+            response_text = str(content) if content else ""
+        
+        if not response_text:
+            raise HTTPException(status_code=500, detail="Agent response is empty")
 
         # Check for image URL in tool results (if image generation was used)
         image_url = None
@@ -140,8 +197,15 @@ async def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
                         pass
 
         # Handle voice output: synthesize text to speech if requested
+        # Use config default if audio_output not explicitly set
+        should_synthesize = (
+            chat_request.audio_output
+            if chat_request.audio_output is not None
+            else settings.tts_enabled_by_default
+        )
+
         audio_output_base64 = None
-        if chat_request.audio_output:
+        if should_synthesize:
             if not settings.azure_speech_key:
                 logger.warning("chat.audio_output.requested_but_not_configured", session_id=session_id)
             else:
@@ -152,6 +216,8 @@ async def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
                         text=response_text,
                         speech_key=settings.azure_speech_key,
                         tts_endpoint=settings.azure_speech_tts_endpoint,
+                        voice=settings.tts_voice,
+                        language=settings.tts_language,
                     )
                     audio_output_base64 = base64.b64encode(audio_data).decode("utf-8")
                     logger.info("chat.audio_output.synthesized", session_id=session_id)

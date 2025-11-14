@@ -13,13 +13,26 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  // Persist sessionId in localStorage to maintain conversation across page refreshes
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("barista_session_id");
+    }
+    return null;
+  });
   const [isListening, setIsListening] = useState(false);
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
+
+  // Persist sessionId to localStorage when it changes
+  useEffect(() => {
+    if (sessionId && typeof window !== "undefined") {
+      localStorage.setItem("barista_session_id", sessionId);
+    }
+  }, [sessionId]);
 
   useEffect(() => {
     // Initialize Web Speech API

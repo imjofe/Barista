@@ -43,6 +43,7 @@ def create_app() -> FastAPI:
         from agent.graph import build_agent_graph
 
         logger.info("startup.initializing_agent")
+
         app.state.ctx.agent_graph = build_agent_graph(app.state.ctx)
         logger.info("startup.complete", chroma_path=settings.chroma_persist_path)
 
