@@ -17,7 +17,6 @@ htmlcov/
 .ruff_cache/
 .venv/
 .env
-.env.*
 frontend/.env.local
 frontend/.env.development
 frontend/.env.production

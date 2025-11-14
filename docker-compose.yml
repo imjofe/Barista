@@ -27,8 +27,14 @@ services:
       - AZURE_OPENAI_EMBEDDING_ENDPOINT=${AZURE_OPENAI_EMBEDDING_ENDPOINT:-https://dehub.cognitiveservices.azure.com}
       - AZURE_OPENAI_EMBEDDING_DEPLOYMENT=${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-text-embedding-ada-002}
       - AZURE_OPENAI_EMBEDDING_API_VERSION=${AZURE_OPENAI_EMBEDDING_API_VERSION:-2023-05-15}
-      # Optional
-      - STABILITY_API_KEY=${STABILITY_API_KEY:-}
+      # Azure FLUX Image Generation
+      - AZURE_FLUX_DEPLOYMENT_NAME=${AZURE_FLUX_DEPLOYMENT_NAME:-FLUX-1.1-pro}
+      - AZURE_FLUX_API_VERSION=${AZURE_FLUX_API_VERSION:-2025-04-01-preview}
+      # Azure Speech Services (Optional)
+      - AZURE_SPEECH_KEY=${AZURE_SPEECH_KEY:-}
+      - AZURE_SPEECH_REGION=${AZURE_SPEECH_REGION:-eastus}
+      - AZURE_SPEECH_STT_ENDPOINT=${AZURE_SPEECH_STT_ENDPOINT:-https://eastus.stt.speech.microsoft.com}
+      - AZURE_SPEECH_TTS_ENDPOINT=${AZURE_SPEECH_TTS_ENDPOINT:-https://eastus.tts.speech.microsoft.com}
       # Infrastructure
       - REDIS_URL=redis://redis:6379/0
       - CHROMA_PERSIST_PATH=/data/chroma

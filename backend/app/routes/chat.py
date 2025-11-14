@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import uuid
 from typing import List
 
@@ -28,8 +29,13 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     """Chat request model."""
 
-    message: str = Field(..., description="User message")
+    message: str | None = Field(default=None, description="User message (text)")
+    audio_input: str | None = Field(
+        default=None,
+        description="Base64 encoded audio data for voice input (alternative to message)",
+    )
     session_id: str | None = Field(default=None, description="Session ID for conversation continuity")
+    audio_output: bool = Field(default=False, description="Whether to return audio response")
 
 
 class ChatResponse(BaseModel):
@@ -38,6 +44,10 @@ class ChatResponse(BaseModel):
     response: str = Field(..., description="Agent response")
     session_id: str = Field(..., description="Session ID")
     image_url: str | None = Field(default=None, description="Optional image URL if image was generated")
+    audio_output: str | None = Field(
+        default=None,
+        description="Base64 encoded audio data if audio_output was requested",
+    )
 
 
 @router.post("/", response_model=ChatResponse, summary="Send a message to the Barista agent")
@@ -49,18 +59,51 @@ async def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
     - Answer menu questions using RAG
     - Check drink availability using the availability tool
     - Retrieve promotions using the promotions tool
-    - Generate drink images using the image generation tool (if configured)
+    - Generate drink images using FLUX 1.1 (if configured)
+    - Support voice input (transcribe audio) and voice output (synthesize response)
+
+    Accepts either text message or audio_input (base64 encoded audio).
+    If audio_output=true, returns synthesized audio response.
     """
     ctx = request.app.state.ctx
     agent_graph = ctx.agent_graph
+    settings = ctx.settings
 
     # Generate or use session ID
     session_id = chat_request.session_id or str(uuid.uuid4())
 
+    # Handle voice input: transcribe audio to text
+    message_text = chat_request.message
+    if chat_request.audio_input and not message_text:
+        if not settings.azure_speech_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Audio input provided but Azure Speech Services not configured. Please set AZURE_SPEECH_KEY.",
+            )
+        try:
+            from app.routes.voice import transcribe_audio
+
+            audio_data = base64.b64decode(chat_request.audio_input)
+            message_text = await transcribe_audio(
+                audio_data=audio_data,
+                speech_key=settings.azure_speech_key,
+                stt_endpoint=settings.azure_speech_stt_endpoint,
+            )
+            logger.info("chat.voice_input.transcribed", session_id=session_id)
+        except Exception as e:
+            logger.error("chat.voice_input.error", error=str(e), session_id=session_id)
+            raise HTTPException(status_code=400, detail=f"Failed to transcribe audio: {str(e)}")
+
+    if not message_text:
+        raise HTTPException(
+            status_code=400,
+            detail="Either message or audio_input must be provided",
+        )
+
     # Create initial state
     config = {"configurable": {"thread_id": session_id}}
     initial_state: AgentState = {
-        "messages": [HumanMessage(content=chat_request.message)],
+        "messages": [HumanMessage(content=message_text)],
         "session_id": session_id,
     }
 
@@ -96,18 +139,40 @@ async def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
                     except (json.JSONDecodeError, ValueError):
                         pass
 
+        # Handle voice output: synthesize text to speech if requested
+        audio_output_base64 = None
+        if chat_request.audio_output:
+            if not settings.azure_speech_key:
+                logger.warning("chat.audio_output.requested_but_not_configured", session_id=session_id)
+            else:
+                try:
+                    from app.routes.voice import synthesize_text
+
+                    audio_data = await synthesize_text(
+                        text=response_text,
+                        speech_key=settings.azure_speech_key,
+                        tts_endpoint=settings.azure_speech_tts_endpoint,
+                    )
+                    audio_output_base64 = base64.b64encode(audio_data).decode("utf-8")
+                    logger.info("chat.audio_output.synthesized", session_id=session_id)
+                except Exception as e:
+                    logger.error("chat.audio_output.error", error=str(e), session_id=session_id)
+                    # Don't fail the request if TTS fails, just log it
+
         logger.info(
             "chat.complete",
             session_id=session_id,
-            message_length=len(chat_request.message),
+            message_length=len(message_text),
             response_length=len(response_text),
             has_image=image_url is not None,
+            has_audio_output=audio_output_base64 is not None,
         )
 
         return ChatResponse(
             response=response_text,
             session_id=session_id,
             image_url=image_url,
+            audio_output=audio_output_base64,
         )
 
     except Exception as e:

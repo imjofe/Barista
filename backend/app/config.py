@@ -49,7 +49,36 @@ class Settings(BaseSettings):
         description="API version for embeddings",
     )
 
-    stability_api_key: str | None = Field(default=None, alias="STABILITY_API_KEY")
+    # Azure FLUX Image Generation configuration
+    azure_flux_deployment_name: str = Field(
+        default="FLUX-1.1-pro",
+        alias="AZURE_FLUX_DEPLOYMENT_NAME",
+        description="Azure FLUX deployment name for image generation",
+    )
+    azure_flux_api_version: str = Field(
+        default="2025-04-01-preview",
+        alias="AZURE_FLUX_API_VERSION",
+        description="API version for FLUX image generation",
+    )
+
+    # Azure Speech Services configuration
+    azure_speech_key: str | None = Field(default=None, alias="AZURE_SPEECH_KEY")
+    azure_speech_region: str = Field(
+        default="eastus",
+        alias="AZURE_SPEECH_REGION",
+        description="Azure Speech Services region",
+    )
+    azure_speech_stt_endpoint: str = Field(
+        default="https://eastus.stt.speech.microsoft.com",
+        alias="AZURE_SPEECH_STT_ENDPOINT",
+        description="Azure Speech Services STT endpoint",
+    )
+    azure_speech_tts_endpoint: str = Field(
+        default="https://eastus.tts.speech.microsoft.com",
+        alias="AZURE_SPEECH_TTS_ENDPOINT",
+        description="Azure Speech Services TTS endpoint",
+    )
+
     redis_url: RedisDsn = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     chroma_persist_path: str = Field(default="./storage/chroma", alias="CHROMA_PERSIST_PATH")
     allow_origins_str: str = Field(

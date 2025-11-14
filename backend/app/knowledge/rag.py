@@ -35,9 +35,11 @@ def create_rag_chain(
 
 Rules:
 - Answer questions about drinks, prices, ingredients, and menu categories using the provided context.
+- When asked to "show the menu" or "what's on the menu", provide a comprehensive overview of all available drinks from the context, including their prices and key details.
 - If the information is not in the provided context, politely decline: "I'm sorry, I can only answer questions about our coffee menu. Could I help you with something from our menu instead?"
 - Be friendly, concise, and accurate.
-- Always include prices when mentioning drinks."""
+- Always include prices when mentioning drinks.
+- Format menu listings clearly with drink names, prices, and brief descriptions."""
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -47,10 +49,11 @@ Rules:
         ]
     )
 
-    # Configure retriever
+    # Configure retriever with higher k to get more context for menu queries
+    # We'll use k=10 to ensure we get all menu items for listing queries
     retriever = vectorstore.as_retriever(
         search_type="similarity",
-        search_kwargs={"k": 3},
+        search_kwargs={"k": 10},
     )
 
     # Create RAG chain using LCEL for better chat history support
@@ -100,13 +103,14 @@ Rules:
         """Prepare inputs for RAG chain, normalizing question and extracting values."""
         question = inputs.get("question", "")
         chat_history = inputs.get("chat_history", [])
-        
+
         # Normalize question to string - ensure it's definitely a string
         question_str = normalize_question(question)
         if not isinstance(question_str, str):
             question_str = str(question_str)
-        
+
         # Retrieve documents using normalized question (async)
+        # Retriever is configured with k=10 to get full menu content
         docs = await retriever.ainvoke(question_str)
         context_str = format_docs(docs)
         

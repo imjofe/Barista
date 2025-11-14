@@ -93,9 +93,14 @@ def build_agent_graph(ctx: AppContext) -> Runnable:
         get_daily_promotion,
     ]
 
-    # Only add image generation if API key is configured
-    if ctx.settings.stability_api_key:
-        image_gen_tool = create_image_gen_tool(ctx.settings.stability_api_key)
+    # Only add image generation if Azure OpenAI API key is configured
+    if ctx.settings.azure_openai_api_key:
+        image_gen_tool = create_image_gen_tool(
+            api_key=ctx.settings.azure_openai_api_key,
+            endpoint=ctx.settings.azure_openai_endpoint,
+            deployment_name=ctx.settings.azure_flux_deployment_name,
+            api_version=ctx.settings.azure_flux_api_version,
+        )
         tools.append(image_gen_tool)
 
     llm_with_tools = llm.bind_tools(tools)
@@ -109,7 +114,12 @@ def build_agent_graph(ctx: AppContext) -> Runnable:
         if isinstance(last_message, HumanMessage):
             content = last_message.content.lower()
 
-            # Check for tool-specific keywords
+            # Priority 1: Menu-related queries should go to RAG
+            menu_keywords = ["menu", "what do you have", "what drinks", "what coffee", "offer", "selection", "list"]
+            if any(keyword in content for keyword in menu_keywords):
+                return "rag"
+
+            # Priority 2: Check for tool-specific keywords
             if any(
                 keyword in content
                 for keyword in ["available", "availability", "when", "time", "now"]
@@ -133,13 +143,17 @@ def build_agent_graph(ctx: AppContext) -> Runnable:
             ):
                 return "tools"
 
+            # Priority 3: Image generation (but not for menu requests)
             if any(
                 keyword in content
-                for keyword in ["show", "image", "picture", "photo", "looks like", "visual"]
+                for keyword in ["image", "picture", "photo", "looks like", "visual"]
             ):
-                if ctx.settings.stability_api_key:
+                # Only route to tools if it's clearly about generating an image
+                # and not about showing the menu
+                if "menu" not in content and ctx.settings.azure_openai_api_key:
                     return "tools"
-                # Fall through to RAG if image gen not available
+                # If menu is mentioned with image keywords, go to RAG
+                return "rag"
 
             # Default to RAG for menu questions
             return "rag"
@@ -237,15 +251,68 @@ def build_agent_graph(ctx: AppContext) -> Runnable:
                     break
 
             # Generate natural language response from tool results
-            tool_results_text = "\n".join([f"- {msg.content}" for msg in tool_messages])
+            # Filter out large base64 image data to avoid context length issues
+            tool_results_text_parts = []
+            has_image = False
+            for msg in tool_messages:
+                content = msg.content
+                # Handle dict content (from tool results)
+                if isinstance(content, dict):
+                    # If it's an image generation result, summarize it instead of including base64
+                    if "image_url" in content:
+                        image_url = content.get("image_url", "")
+                        if image_url and image_url.startswith("data:image"):
+                            # Truncate base64 data URL - just indicate image was generated
+                            # The image URL is a data URL with base64, so we omit it to save tokens
+                            tool_results_text_parts.append(
+                                "- Image generated successfully"
+                            )
+                            has_image = True
+                        else:
+                            tool_results_text_parts.append(f"- Image URL: {image_url}")
+                            has_image = True
+                    elif "error" in content:
+                        tool_results_text_parts.append(f"- Error: {content.get('error')}")
+                    else:
+                        # For other dict content, convert to string but limit size
+                        content_str = str(content)
+                        if len(content_str) > 500:
+                            content_str = content_str[:500] + "... (truncated)"
+                        tool_results_text_parts.append(f"- {content_str}")
+                elif isinstance(content, str):
+                    # For string content, check if it's a base64 data URL
+                    if content.startswith("data:image") and len(content) > 1000:
+                        # Truncate large base64 image data
+                        tool_results_text_parts.append("- Image generated successfully (base64 data omitted)")
+                        has_image = True
+                    elif len(content) > 1000:
+                        # Truncate other long strings
+                        tool_results_text_parts.append(f"- {content[:500]}... (truncated)")
+                    else:
+                        tool_results_text_parts.append(f"- {content}")
+                else:
+                    # For other types, convert to string with size limit
+                    content_str = str(content)
+                    if len(content_str) > 500:
+                        content_str = content_str[:500] + "... (truncated)"
+                    tool_results_text_parts.append(f"- {content_str}")
+            
+            tool_results_text = "\n".join(tool_results_text_parts)
+            
+            # Special handling for image generation - tell LLM not to include image data
+            image_instruction = ""
+            if has_image:
+                image_instruction = "\n\nIMPORTANT: Do NOT include any image URLs, base64 data, or markdown image syntax in your response. The image has been generated and will be displayed separately. Just mention that you've generated the image."
+            
             response_prompt = f"""Based on the tool results below, provide a friendly, natural response to the user's question.
 
 Tool Results:
 {tool_results_text}
 
 User's original question: {human_msg.content if human_msg else 'N/A'}
+{image_instruction}
 
-Provide a concise, helpful response that incorporates the tool results naturally. Be conversational and helpful."""
+Provide a concise, helpful response that incorporates the tool results naturally. Be conversational and helpful. Do not include any technical details, URLs, or data in your response."""
 
             final_response = await llm.ainvoke([HumanMessage(content=response_prompt)])
             state["messages"].append(AIMessage(content=final_response.content))

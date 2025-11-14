@@ -7,8 +7,8 @@ An intelligent virtual assistant for coffee shops that replaces static menu boar
 - **Menu Q&A**: Answer questions about drinks, prices, and ingredients using RAG (Retrieval-Augmented Generation)
 - **Availability Checking**: Time-based drink availability with intelligent suggestions
 - **Promotions**: Daily specials and deals via mock API integration
-- **Image Generation**: Visual drink representations using Stability AI (optional)
-- **Voice Input**: Web Speech API integration for hands-free interaction
+- **Image Generation**: Visual drink representations using FLUX 1.1 on Azure Foundry (optional)
+- **Voice Input/Output**: Azure Speech Services integration for speech-to-text and text-to-speech
 - **Session Management**: Conversation continuity across interactions
 
 ## Architecture
@@ -26,8 +26,10 @@ An intelligent virtual assistant for coffee shops that replaces static menu boar
 - **UI**: Next.js, React, Tailwind CSS, shadcn/ui components
 - **Backend**: FastAPI, LangChain, LangGraph, Azure OpenAI
 - **Vector Store**: ChromaDB
-- **Embeddings**: Azure OpenAI text-embedding-3-small
-- **LLM**: Azure OpenAI GPT-4o-mini (via Azure endpoint)
+- **Embeddings**: Azure OpenAI text-embedding-ada-002
+- **LLM**: Azure OpenAI (DeepSeek via Azure endpoint)
+- **Image Generation**: FLUX 1.1 on Azure Foundry
+- **Speech Services**: Azure Speech Services (STT/TTS)
 - **Deployment**: Docker containers managed by Coolify
 
 ## Quick Start
@@ -36,7 +38,7 @@ An intelligent virtual assistant for coffee shops that replaces static menu boar
 
 - Docker and Docker Compose
 - Azure OpenAI API key and endpoint access
-- (Optional) Stability AI API key for image generation
+- (Optional) Azure Speech Services API key for voice input/output
 
 ### Local Development
 
@@ -72,6 +74,11 @@ An intelligent virtual assistant for coffee shops that replaces static menu boar
    AZURE_OPENAI_EMBEDDING_ENDPOINT=https://dehub.cognitiveservices.azure.com
    AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
    AZURE_OPENAI_EMBEDDING_API_VERSION=2023-05-15
+   AZURE_FLUX_DEPLOYMENT_NAME=FLUX-1.1-pro
+   AZURE_FLUX_API_VERSION=2025-04-01-preview
+   # Optional: Azure Speech Services for voice features
+   # AZURE_SPEECH_KEY=your-azure-speech-key
+   # AZURE_SPEECH_REGION=eastus
    EOF
    ```
    
